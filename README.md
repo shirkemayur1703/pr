@@ -1,566 +1,240 @@
-Perfect 🚀 I’ll put everything together in a clean, modular, complete Java implementation of your Digital Wallet Application with:
+Perfect 👌 You already have the schema (UserInfo, Product, Cart) in Oracle.
+Let’s go step by step:
 
-Core module → models, services, exceptions
 
-Persistent module → repositories (in-memory DB)
+---
 
-App.java → demo runner
+⚙️ Step 1: Configure Oracle Database Connection in Java (Maven project, not Spring Boot)
 
-Payment methods → DebitCard, CreditCard, UPI all implementing PaymentMethod
+1. Add Oracle JDBC Driver to Maven
+
+Oracle driver is not available in Maven Central (due to licensing). You have two options:
+
+Option A: Manually install driver into Maven local repo
+
+1. Download ojdbc8.jar (for Java 8+).
+
+
+2. Run this command:
+
+mvn install:install-file -Dfile=ojdbc8.jar -DgroupId=com.oracle.database.jdbc \
+  -DartifactId=ojdbc8 -Dversion=19.8.0.0 -Dpackaging=jar
+
+
+3. Add dependency in pom.xml:
+
+<dependency>
+    <groupId>com.oracle.database.jdbc</groupId>
+    <artifactId>ojdbc8</artifactId>
+    <version>19.8.0.0</version>
+</dependency>
+
+
+
+Option B: Add ojdbc8.jar directly to your project’s lib/ folder
+and include it in classpath (works but not Maven-friendly).
 
 
 
 ---
 
-📂 Project Structure
+2. Create Database Connection Utility
 
-digital-wallet/
-│── core/
-│   ├── model/
-│   │   ├── User.java
-│   │   ├── UserProfile.java
-│   │   ├── Wallet.java
-│   │   ├── Transaction.java
-│   │   ├── PaymentMethod.java
-│   │   ├── Card.java
-│   │   ├── DebitCard.java
-│   │   ├── CreditCard.java
-│   │   └── UPI.java
-│   │
-│   ├── service/
-│   │   ├── UserService.java
-│   │   ├── WalletService.java
-│   │   └── TransactionService.java
-│   │
-│   └── exception/
-│       ├── InsufficientBalanceException.java
-│       ├── InvalidPinException.java
-│       └── UserNotFoundException.java
-│
-│── persistent/
-│   └── repository/
-│       ├── UserRepository.java
-│       ├── WalletRepository.java
-│       └── TransactionRepository.java
-│
-└── App.java
+package com.example.shopping.util;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 
----
+public class DBConnection {
+    private static final String URL = "jdbc:oracle:thin:@localhost:1521:xe"; // Change SID/service
+    private static final String USER = "your_username";
+    private static final String PASSWORD = "your_password";
 
-✅ Core Module
-
-Models
-
-User.java
-
-package core.model;
-
-import java.util.Objects;
-
-public final class User {
-    private final String userId;
-    private final String email;
-    private final String pin;
-    private final UserProfile profile;
-
-    public User(String userId, String email, String pin, UserProfile profile) {
-        this.userId = Objects.requireNonNull(userId);
-        this.email = Objects.requireNonNull(email);
-        this.pin = Objects.requireNonNull(pin);
-        this.profile = Objects.requireNonNull(profile);
-    }
-
-    public String getUserId() { return userId; }
-    public String getEmail() { return email; }
-    public String getPin() { return pin; }
-    public UserProfile getProfile() { return profile; }
-}
-
-
----
-
-UserProfile.java
-
-package core.model;
-
-public class UserProfile {
-    private String name;
-    private String phone;
-
-    public UserProfile(String name, String phone) {
-        this.name = name;
-        this.phone = phone;
-    }
-
-    public String getName() { return name; }
-    public String getPhone() { return phone; }
-
-    public void setName(String name) { this.name = name; }
-    public void setPhone(String phone) { this.phone = phone; }
-}
-
-
----
-
-Wallet.java
-
-package core.model;
-
-import java.math.BigDecimal;
-
-public class Wallet {
-    private final String walletId;
-    private BigDecimal balance;
-
-    public Wallet(String walletId) {
-        this.walletId = walletId;
-        this.balance = BigDecimal.ZERO;
-    }
-
-    public String getWalletId() { return walletId; }
-    public BigDecimal getBalance() { return balance; }
-
-    public void addMoney(BigDecimal amount) {
-        balance = balance.add(amount);
-    }
-
-    public void deductMoney(BigDecimal amount) {
-        balance = balance.subtract(amount);
-    }
-}
-
-
----
-
-Transaction.java
-
-package core.model;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.Objects;
-
-public final class Transaction {
-    private final String transactionId;
-    private final String senderId;
-    private final String receiverId;
-    private final BigDecimal amount;
-    private final LocalDateTime timestamp;
-
-    public Transaction(String transactionId, String senderId, String receiverId, BigDecimal amount) {
-        this.transactionId = Objects.requireNonNull(transactionId);
-        this.senderId = Objects.requireNonNull(senderId);
-        this.receiverId = Objects.requireNonNull(receiverId);
-        this.amount = Objects.requireNonNull(amount);
-        this.timestamp = LocalDateTime.now();
-    }
-
-    public String getTransactionId() { return transactionId; }
-    public String getSenderId() { return senderId; }
-    public String getReceiverId() { return receiverId; }
-    public BigDecimal getAmount() { return amount; }
-    public LocalDateTime getTimestamp() { return timestamp; }
-}
-
-
----
-
-Payment System
-
-PaymentMethod.java
-
-package core.model;
-
-import java.math.BigDecimal;
-
-public interface PaymentMethod {
-    String getCardNumber();
-    String getCardHolderName();
-    boolean validatePin(String pin);
-    void charge(BigDecimal amount);
-}
-
-
----
-
-Card.java
-
-package core.model;
-
-import java.util.Objects;
-
-public abstract class Card implements PaymentMethod {
-    private final String cardNumber;
-    private final String cardHolderName;
-    private final String expiryDate;
-    private final String pin;
-
-    protected Card(String cardNumber, String cardHolderName, String expiryDate, String pin) {
-        this.cardNumber = Objects.requireNonNull(cardNumber);
-        this.cardHolderName = Objects.requireNonNull(cardHolderName);
-        this.expiryDate = Objects.requireNonNull(expiryDate);
-        this.pin = Objects.requireNonNull(pin);
-    }
-
-    @Override
-    public String getCardNumber() { return cardNumber; }
-
-    @Override
-    public String getCardHolderName() { return cardHolderName; }
-
-    public String getExpiryDate() { return expiryDate; }
-
-    @Override
-    public boolean validatePin(String pin) { return this.pin.equals(pin); }
-}
-
-
----
-
-DebitCard.java
-
-package core.model;
-
-import java.math.BigDecimal;
-
-public class DebitCard extends Card {
-    private BigDecimal linkedAccountBalance;
-
-    public DebitCard(String cardNumber, String holderName, String expiryDate, String pin, BigDecimal initialBalance) {
-        super(cardNumber, holderName, expiryDate, pin);
-        this.linkedAccountBalance = initialBalance;
-    }
-
-    @Override
-    public void charge(BigDecimal amount) {
-        if (linkedAccountBalance.compareTo(amount) < 0) {
-            throw new RuntimeException("Insufficient funds in debit account!");
+    public static Connection getConnection() throws SQLException {
+        try {
+            Class.forName("oracle.jdbc.driver.OracleDriver");
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("Oracle JDBC Driver not found!", e);
         }
-        linkedAccountBalance = linkedAccountBalance.subtract(amount);
+        return DriverManager.getConnection(URL, USER, PASSWORD);
     }
-
-    public BigDecimal getLinkedAccountBalance() { return linkedAccountBalance; }
 }
+
+✅ This will be reused across all DAOs.
 
 
 ---
 
-CreditCard.java
+🛒 Step 2: DAO Layer
 
-package core.model;
+We’ll implement DAO classes for Product and Cart with CRUD operations you requested.
 
-import java.math.BigDecimal;
 
-public class CreditCard extends Card {
-    private final BigDecimal creditLimit;
-    private BigDecimal usedLimit;
+---
 
-    public CreditCard(String cardNumber, String holderName, String expiryDate, String pin, BigDecimal creditLimit) {
-        super(cardNumber, holderName, expiryDate, pin);
-        this.creditLimit = creditLimit;
-        this.usedLimit = BigDecimal.ZERO;
-    }
+1. ProductDAO
 
-    @Override
-    public void charge(BigDecimal amount) {
-        if (usedLimit.add(amount).compareTo(creditLimit) > 0) {
-            throw new RuntimeException("Credit limit exceeded!");
+package com.example.shopping.dao;
+
+import com.example.shopping.util.DBConnection;
+import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
+
+public class ProductDAO {
+
+    // Add new product
+    public void addProduct(String prodId, String name, String category, double price, double discount, String description) {
+        String sql = "INSERT INTO Product (prod_id, prod_name, category, price, discount, description) VALUES (?, ?, ?, ?, ?, ?)";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, prodId);
+            ps.setString(2, name);
+            ps.setString(3, category);
+            ps.setDouble(4, price);
+            ps.setDouble(5, discount);
+            ps.setString(6, description);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
-        usedLimit = usedLimit.add(amount);
     }
 
-    public BigDecimal getCreditLimit() { return creditLimit; }
-    public BigDecimal getAvailableLimit() { return creditLimit.subtract(usedLimit); }
-}
-
-
----
-
-UPI.java
-
-package core.model;
-
-import java.math.BigDecimal;
-import java.util.Objects;
-
-public class UPI implements PaymentMethod {
-    private final String upiId;
-    private final String pin;
-    private BigDecimal linkedBankBalance;
-
-    public UPI(String upiId, String pin, BigDecimal initialBalance) {
-        this.upiId = Objects.requireNonNull(upiId);
-        this.pin = Objects.requireNonNull(pin);
-        this.linkedBankBalance = initialBalance;
-    }
-
-    @Override
-    public String getCardNumber() { return upiId; }
-
-    @Override
-    public String getCardHolderName() { return upiId; }
-
-    @Override
-    public boolean validatePin(String pin) { return this.pin.equals(pin); }
-
-    @Override
-    public void charge(BigDecimal amount) {
-        if (linkedBankBalance.compareTo(amount) < 0) {
-            throw new RuntimeException("Insufficient balance in UPI account!");
+    // Search by name
+    public List<String> searchByName(String keyword) {
+        String sql = "SELECT prod_name FROM Product WHERE LOWER(prod_name) LIKE ?";
+        List<String> results = new ArrayList<>();
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, "%" + keyword.toLowerCase() + "%");
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                results.add(rs.getString("prod_name"));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
-        linkedBankBalance = linkedBankBalance.subtract(amount);
+        return results;
     }
 
-    public BigDecimal getLinkedBankBalance() { return linkedBankBalance; }
-}
-
-
----
-
-Exceptions
-
-InsufficientBalanceException.java
-
-package core.exception;
-
-public class InsufficientBalanceException extends RuntimeException {
-    public InsufficientBalanceException(String message) {
-        super(message);
-    }
-}
-
-InvalidPinException.java
-
-package core.exception;
-
-public class InvalidPinException extends RuntimeException {
-    public InvalidPinException(String message) {
-        super(message);
-    }
-}
-
-UserNotFoundException.java
-
-package core.exception;
-
-public class UserNotFoundException extends RuntimeException {
-    public UserNotFoundException(String message) {
-        super(message);
-    }
-}
-
-
----
-
-Services
-
-UserService.java
-
-package core.service;
-
-import core.exception.UserNotFoundException;
-import core.model.User;
-import persistent.repository.UserRepository;
-
-public class UserService {
-    private final UserRepository userRepository = new UserRepository();
-
-    public void registerUser(User user) { userRepository.save(user); }
-
-    public User login(String email, String pin) {
-        return userRepository.findByEmail(email)
-                .filter(u -> u.getPin().equals(pin))
-                .orElseThrow(() -> new UserNotFoundException("Invalid email or pin"));
-    }
-}
-
-
----
-
-WalletService.java
-
-package core.service;
-
-import core.exception.InsufficientBalanceException;
-import core.model.PaymentMethod;
-import core.model.Wallet;
-import persistent.repository.WalletRepository;
-
-import java.math.BigDecimal;
-
-public class WalletService {
-    private final WalletRepository walletRepository = new WalletRepository();
-
-    public void addMoney(String walletId, BigDecimal amount, PaymentMethod method, String pin) {
-        if (!method.validatePin(pin)) {
-            throw new RuntimeException("Invalid PIN!");
+    // Search by category
+    public List<String> searchByCategory(String category) {
+        String sql = "SELECT prod_name FROM Product WHERE LOWER(category) = ?";
+        List<String> results = new ArrayList<>();
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, category.toLowerCase());
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                results.add(rs.getString("prod_name"));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
-        method.charge(amount);
-        Wallet wallet = walletRepository.findById(walletId)
-                .orElseThrow(() -> new RuntimeException("Wallet not found"));
-        wallet.addMoney(amount);
+        return results;
     }
 
-    public void deductMoney(String walletId, BigDecimal amount) {
-        Wallet wallet = walletRepository.findById(walletId)
-                .orElseThrow(() -> new RuntimeException("Wallet not found"));
-        if (wallet.getBalance().compareTo(amount) < 0) {
-            throw new InsufficientBalanceException("Not enough balance!");
+    // Search by price range
+    public List<String> searchByPriceRange(double minPrice, double maxPrice) {
+        String sql = "SELECT prod_name FROM Product WHERE price BETWEEN ? AND ?";
+        List<String> results = new ArrayList<>();
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setDouble(1, minPrice);
+            ps.setDouble(2, maxPrice);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                results.add(rs.getString("prod_name"));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
-        wallet.deductMoney(amount);
-    }
-
-    public void saveWallet(Wallet wallet) {
-        walletRepository.save(wallet);
+        return results;
     }
 }
 
 
 ---
 
-TransactionService.java
+2. CartDAO
 
-package core.service;
+package com.example.shopping.dao;
 
-import core.model.Transaction;
-import persistent.repository.TransactionRepository;
+import com.example.shopping.util.DBConnection;
+import java.sql.*;
 
-import java.math.BigDecimal;
-import java.util.UUID;
+public class CartDAO {
 
-public class TransactionService {
-    private final TransactionRepository transactionRepository = new TransactionRepository();
-    private final WalletService walletService = new WalletService();
+    // Add product to cart
+    public void addToCart(String userId, String productId, int quantity) {
+        String sql = "MERGE INTO Cart c " +
+                     "USING (SELECT ? AS user_id, ? AS product_id FROM dual) d " +
+                     "ON (c.user_id = d.user_id AND c.product_id = d.product_id) " +
+                     "WHEN MATCHED THEN UPDATE SET c.quantity = c.quantity + ? " +
+                     "WHEN NOT MATCHED THEN INSERT (user_id, product_id, quantity) VALUES (?, ?, ?)";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, userId);
+            ps.setString(2, productId);
+            ps.setInt(3, quantity);
+            ps.setString(4, userId);
+            ps.setString(5, productId);
+            ps.setInt(6, quantity);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
 
-    public Transaction sendMoney(String senderWalletId, String receiverWalletId, BigDecimal amount) {
-        walletService.deductMoney(senderWalletId, amount);
-        walletService.addMoney(receiverWalletId, amount, new UPI("system@upi","0000",amount), "0000");
+    // Update quantity
+    public void updateQuantity(String userId, String productId, int quantity) {
+        String sql = "UPDATE Cart SET quantity = ? WHERE user_id = ? AND product_id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, quantity);
+            ps.setString(2, userId);
+            ps.setString(3, productId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
 
-        Transaction txn = new Transaction(UUID.randomUUID().toString(), senderWalletId, receiverWalletId, amount);
-        transactionRepository.save(txn);
-        return txn;
+    // Remove product from cart
+    public void removeFromCart(String userId, String productId) {
+        String sql = "DELETE FROM Cart WHERE user_id = ? AND product_id = ?";
+        try (Connection conn = DBConnection.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, userId);
+            ps.setString(2, productId);
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 }
 
 
 ---
 
-📌 Persistent Module
+🚀 Step 3: How it Works
 
-UserRepository.java
+Add product → ProductDAO.addProduct(...)
 
-package persistent.repository;
+Search product → ProductDAO.searchByName("phone"), searchByCategory("electronics"), searchByPriceRange(1000, 5000)
 
-import core.model.User;
-import java.util.*;
+Add to cart → CartDAO.addToCart(userId, productId, quantity)
 
-public class UserRepository {
-    private final Map<String, User> users = new HashMap<>();
+Update quantity → CartDAO.updateQuantity(userId, productId, newQuantity)
 
-    public void save(User user) { users.put(user.getUserId(), user); }
-
-    public Optional<User> findByEmail(String email) {
-        return users.values().stream().filter(u -> u.getEmail().equals(email)).findFirst();
-    }
-}
-
-
----
-
-WalletRepository.java
-
-package persistent.repository;
-
-import core.model.Wallet;
-import java.util.*;
-
-public class WalletRepository {
-    private final Map<String, Wallet> wallets = new HashMap<>();
-
-    public void save(Wallet wallet) { wallets.put(wallet.getWalletId(), wallet); }
-
-    public Optional<Wallet> findById(String walletId) { return Optional.ofNullable(wallets.get(walletId)); }
-}
-
-
----
-
-TransactionRepository.java
-
-package persistent.repository;
-
-import core.model.Transaction;
-import java.util.*;
-
-public class TransactionRepository {
-    private final List<Transaction> transactions = new ArrayList<>();
-
-    public void save(Transaction txn) { transactions.add(txn); }
-
-    public List<Transaction> findAll() { return Collections.unmodifiableList(transactions); }
-}
-
-
----
-
-📌 Main Class (Demo)
-
-App.java
-
-import core.model.*;
-import core.service.*;
-
-import java.math.BigDecimal;
-import java.util.UUID;
-
-public class App {
-    public static void main(String[] args) {
-        WalletService walletService = new WalletService();
-
-        // Create wallets
-        Wallet w1 = new Wallet(UUID.randomUUID().toString());
-        Wallet w2 = new Wallet(UUID.randomUUID().toString());
-        walletService.saveWallet(w1);
-        walletService.saveWallet(w2);
-
-        // Payment methods
-        DebitCard debitCard = new DebitCard("1111-2222-3333-4444", "Alice", "12/30", "1234", new BigDecimal("5000"));
-        CreditCard creditCard = new CreditCard("5555-6666-7777-8888", "Bob", "11/29", "5678", new BigDecimal("10000"));
-        UPI upi = new UPI("alice@upi", "9999", new BigDecimal("3000"));
-
-        // Add money to wallets
-        walletService.addMoney(w1.getWalletId(), new BigDecimal("1000"), debitCard, "1234");
-        walletService.addMoney(w2.getWalletId(), new BigDecimal("2000"), creditCard, "5678");
-        walletService.addMoney(w1.getWalletId(), new BigDecimal("500"), upi, "9999");
-
-        // Print balances
-        System.out.println("Wallet1 Balance: " + w1.getBalance());
-        System.out.println("Wallet2 Balance: " + w2.getBalance());
-        System.out.println("Debit Card Balance: " + debitCard.getLinkedAccountBalance());
-        System.out.println("Credit Card Available Limit: " + creditCard.getAvailableLimit());
-        System.out.println("UPI Linked Balance: " + upi.getLinkedBankBalance());
-    }
-}
-
-
----
-
-✅ This is the complete runnable project.
-
-User, Transaction → immutable
-
-Wallet, UserProfile → mutable where needed
-
-PaymentMethod → unified interface
-
-Implementations → DebitCard, CreditCard, UPI
-
-Clean separation of Core (logic) and Persistent (data storage)
+Remove product → CartDAO.removeFromCart(userId, productId)
 
 
 
 ---
 
-Do you also want me to extend this so money requests (request/approve flow) between users are included, or keep it limited to send + add money for now?
+👉 This setup matches exactly the schema in your screenshot and handles all required operations.
+
+Would you like me to also create a Service Layer (CartService & ProductService) on top of DAOs so that your future controller (API layer) won’t directly talk to DAOs? That will make your backend cleaner.
 
