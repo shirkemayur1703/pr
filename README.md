@@ -1,216 +1,112 @@
-Perfect 👌 You already have the schema (UserInfo, Product, Cart) in Oracle.
-Let’s go step by step:
+Perfect 👍 let’s extend your DAO + Service with the missing cart operations.
+
+We’ll keep it clean and simple, with Oracle in mind.
 
 
 ---
 
-⚙️ Step 1: Configure Oracle Database Connection in Java (Maven project, not Spring Boot)
+🔹 DAO Layer
 
-1. Add Oracle JDBC Driver to Maven
+CartItemDao
 
-Oracle driver is not available in Maven Central (due to licensing). You have two options:
-
-Option A: Manually install driver into Maven local repo
-
-1. Download ojdbc8.jar (for Java 8+).
-
-
-2. Run this command:
-
-mvn install:install-file -Dfile=ojdbc8.jar -DgroupId=com.oracle.database.jdbc \
-  -DartifactId=ojdbc8 -Dversion=19.8.0.0 -Dpackaging=jar
-
-
-3. Add dependency in pom.xml:
-
-<dependency>
-    <groupId>com.oracle.database.jdbc</groupId>
-    <artifactId>ojdbc8</artifactId>
-    <version>19.8.0.0</version>
-</dependency>
-
-
-
-Option B: Add ojdbc8.jar directly to your project’s lib/ folder
-and include it in classpath (works but not Maven-friendly).
-
-
-
----
-
-2. Create Database Connection Utility
-
-package com.example.shopping.util;
-
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
-
-public class DBConnection {
-    private static final String URL = "jdbc:oracle:thin:@localhost:1521:xe"; // Change SID/service
-    private static final String USER = "your_username";
-    private static final String PASSWORD = "your_password";
-
-    public static Connection getConnection() throws SQLException {
-        try {
-            Class.forName("oracle.jdbc.driver.OracleDriver");
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException("Oracle JDBC Driver not found!", e);
-        }
-        return DriverManager.getConnection(URL, USER, PASSWORD);
-    }
-}
-
-✅ This will be reused across all DAOs.
-
-
----
-
-🛒 Step 2: DAO Layer
-
-We’ll implement DAO classes for Product and Cart with CRUD operations you requested.
-
-
----
-
-1. ProductDAO
-
-package com.example.shopping.dao;
-
-import com.example.shopping.util.DBConnection;
-import java.sql.*;
-import java.util.ArrayList;
 import java.util.List;
 
-public class ProductDAO {
-
-    // Add new product
-    public void addProduct(String prodId, String name, String category, double price, double discount, String description) {
-        String sql = "INSERT INTO Product (prod_id, prod_name, category, price, discount, description) VALUES (?, ?, ?, ?, ?, ?)";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, prodId);
-            ps.setString(2, name);
-            ps.setString(3, category);
-            ps.setDouble(4, price);
-            ps.setDouble(5, discount);
-            ps.setString(6, description);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
-
-    // Search by name
-    public List<String> searchByName(String keyword) {
-        String sql = "SELECT prod_name FROM Product WHERE LOWER(prod_name) LIKE ?";
-        List<String> results = new ArrayList<>();
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, "%" + keyword.toLowerCase() + "%");
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                results.add(rs.getString("prod_name"));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return results;
-    }
-
-    // Search by category
-    public List<String> searchByCategory(String category) {
-        String sql = "SELECT prod_name FROM Product WHERE LOWER(category) = ?";
-        List<String> results = new ArrayList<>();
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, category.toLowerCase());
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                results.add(rs.getString("prod_name"));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return results;
-    }
-
-    // Search by price range
-    public List<String> searchByPriceRange(double minPrice, double maxPrice) {
-        String sql = "SELECT prod_name FROM Product WHERE price BETWEEN ? AND ?";
-        List<String> results = new ArrayList<>();
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setDouble(1, minPrice);
-            ps.setDouble(2, maxPrice);
-            ResultSet rs = ps.executeQuery();
-            while (rs.next()) {
-                results.add(rs.getString("prod_name"));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return results;
-    }
+public interface CartItemDao {
+    CartItem findByUserAndProduct(String userId, String productId) throws SQLException;
+    void insert(CartItem cartItem) throws SQLException;
+    void update(CartItem cartItem) throws SQLException;
+    void delete(String userId, String productId) throws SQLException;
+    List<CartItem> findByUser(String userId) throws SQLException;
+    void clearCart(String userId) throws SQLException;
 }
 
+CartItemDaoImpl
 
----
-
-2. CartDAO
-
-package com.example.shopping.dao;
-
-import com.example.shopping.util.DBConnection;
 import java.sql.*;
+import java.util.*;
 
-public class CartDAO {
+public class CartItemDaoImpl implements CartItemDao {
+    private final Connection connection;
 
-    // Add product to cart
-    public void addToCart(String userId, String productId, int quantity) {
-        String sql = "MERGE INTO Cart c " +
-                     "USING (SELECT ? AS user_id, ? AS product_id FROM dual) d " +
-                     "ON (c.user_id = d.user_id AND c.product_id = d.product_id) " +
-                     "WHEN MATCHED THEN UPDATE SET c.quantity = c.quantity + ? " +
-                     "WHEN NOT MATCHED THEN INSERT (user_id, product_id, quantity) VALUES (?, ?, ?)";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+    public CartItemDaoImpl(Connection connection) {
+        this.connection = connection;
+    }
+
+    @Override
+    public CartItem findByUserAndProduct(String userId, String productId) throws SQLException {
+        String sql = "SELECT quantity FROM cart WHERE user_id = ? AND product_id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, userId);
             ps.setString(2, productId);
-            ps.setInt(3, quantity);
-            ps.setString(4, userId);
-            ps.setString(5, productId);
-            ps.setInt(6, quantity);
+            ResultSet rs = ps.executeQuery();
+            if (rs.next()) {
+                return new CartItem(userId, productId, rs.getInt("quantity"));
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public void insert(CartItem cartItem) throws SQLException {
+        String sql = "INSERT INTO cart(user_id, product_id, quantity) VALUES (?, ?, ?)";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, cartItem.getUserId());
+            ps.setString(2, cartItem.getProductId());
+            ps.setInt(3, cartItem.getQuantity());
             ps.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
-    // Update quantity
-    public void updateQuantity(String userId, String productId, int quantity) {
-        String sql = "UPDATE Cart SET quantity = ? WHERE user_id = ? AND product_id = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, quantity);
-            ps.setString(2, userId);
-            ps.setString(3, productId);
+    @Override
+    public void update(CartItem cartItem) throws SQLException {
+        String sql = "UPDATE cart SET quantity = ? WHERE user_id = ? AND product_id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setInt(1, cartItem.getQuantity());
+            ps.setString(2, cartItem.getUserId());
+            ps.setString(3, cartItem.getProductId());
             ps.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
         }
     }
 
-    // Remove product from cart
-    public void removeFromCart(String userId, String productId) {
-        String sql = "DELETE FROM Cart WHERE user_id = ? AND product_id = ?";
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+    @Override
+    public void delete(String userId, String productId) throws SQLException {
+        String sql = "DELETE FROM cart WHERE user_id = ? AND product_id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setString(1, userId);
             ps.setString(2, productId);
             ps.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public List<CartItem> findByUser(String userId) throws SQLException {
+        List<CartItem> items = new ArrayList<>();
+        String sql = "SELECT c.product_id, c.quantity, p.name, p.price " +
+                     "FROM cart c JOIN product p ON c.product_id = p.prodid " +
+                     "WHERE c.user_id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, userId);
+            ResultSet rs = ps.executeQuery();
+            while (rs.next()) {
+                CartItem item = new CartItem(
+                    userId,
+                    rs.getString("product_id"),
+                    rs.getInt("quantity")
+                );
+                // Optional: set product details if CartItem holds a Product
+                items.add(item);
+            }
+        }
+        return items;
+    }
+
+    @Override
+    public void clearCart(String userId) throws SQLException {
+        String sql = "DELETE FROM cart WHERE user_id = ?";
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            ps.setString(1, userId);
+            ps.executeUpdate();
         }
     }
 }
@@ -218,23 +114,96 @@ public class CartDAO {
 
 ---
 
-🚀 Step 3: How it Works
+🔹 Service Layer
 
-Add product → ProductDAO.addProduct(...)
+CartService
 
-Search product → ProductDAO.searchByName("phone"), searchByCategory("electronics"), searchByPriceRange(1000, 5000)
+import java.sql.SQLException;
+import java.util.List;
 
-Add to cart → CartDAO.addToCart(userId, productId, quantity)
+public class CartService {
+    private final CartItemDao cartItemDao;
+    private final ProductDao productDao; // assume you have a DAO for products
 
-Update quantity → CartDAO.updateQuantity(userId, productId, newQuantity)
+    public CartService(CartItemDao cartItemDao, ProductDao productDao) {
+        this.cartItemDao = cartItemDao;
+        this.productDao = productDao;
+    }
 
-Remove product → CartDAO.removeFromCart(userId, productId)
+    // Add or increase quantity
+    public void addToCart(String userId, String productId, int qty) throws SQLException {
+        CartItem existing = cartItemDao.findByUserAndProduct(userId, productId);
+        if (existing != null) {
+            existing.setQuantity(existing.getQuantity() + qty);
+            cartItemDao.update(existing);
+        } else {
+            cartItemDao.insert(new CartItem(userId, productId, qty));
+        }
+    }
+
+    // Decrease quantity
+    public void decreaseQuantity(String userId, String productId) throws SQLException {
+        CartItem existing = cartItemDao.findByUserAndProduct(userId, productId);
+        if (existing != null) {
+            int newQty = existing.getQuantity() - 1;
+            if (newQty > 0) {
+                existing.setQuantity(newQty);
+                cartItemDao.update(existing);
+            } else {
+                cartItemDao.delete(userId, productId);
+            }
+        }
+    }
+
+    // Remove item entirely
+    public void removeItem(String userId, String productId) throws SQLException {
+        cartItemDao.delete(userId, productId);
+    }
+
+    // View cart
+    public List<CartItem> viewCart(String userId) throws SQLException {
+        return cartItemDao.findByUser(userId);
+    }
+
+    // Calculate total price
+    public double calculateTotal(String userId) throws SQLException {
+        List<CartItem> cartItems = cartItemDao.findByUser(userId);
+        double total = 0.0;
+        for (CartItem item : cartItems) {
+            Product product = productDao.findById(item.getProductId());
+            total += product.getPrice() * item.getQuantity();
+        }
+        return total;
+    }
+
+    // Clear entire cart
+    public void clearCart(String userId) throws SQLException {
+        cartItemDao.clearCart(userId);
+    }
+}
+
+
+---
+
+🔹 Summary of Supported Features
+
+Add item / increase quantity
+
+Decrease quantity (remove row if zero)
+
+Remove item directly
+
+View cart (returns list of CartItem)
+
+Calculate total (cart subtotal)
+
+Clear cart
 
 
 
 ---
 
-👉 This setup matches exactly the schema in your screenshot and handles all required operations.
+👉 With this, your cart is functionally complete for a typical e-commerce project.
 
-Would you like me to also create a Service Layer (CartService & ProductService) on top of DAOs so that your future controller (API layer) won’t directly talk to DAOs? That will make your backend cleaner.
+Do you want me to also extend this with stock check logic (so a user can’t add more items than available in inventory)?
 
