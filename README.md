@@ -1,3 +1,23 @@
+// Generic DAO Interface - for Product, User, etc.
+public interface DAOInterface<T> {
+    void create(T entity);
+    T findById(Long id);
+    List<T> findAll();
+    void update(T entity);  // Makes sense for Product, User
+    void delete(Long id);
+}
+
+// CartItem-specific interface - business operations
+public interface CartItemDAO {
+    void addCartItem(CartItem cartItem);           // Add/merge logic
+    void increaseQty(Long userId, Long prodId, Double price);
+    void decreaseQty(Long userId, Long prodId, Double price);
+    CartItem getCartItem(Long userId, Long prodId);
+    List<CartItem> getCartItemsByUserId(Long userId);
+    void removeFromCart(Long userId, Long prodId);
+    // NO generic update() method!
+}
+
 // CartItem Model
 public class CartItem {
     private Long userId;
