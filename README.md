@@ -135,8 +135,8 @@ import java.util.List;
 
 public interface CartItemDAO {
     void addCartItem(CartItem cartItem) throws Exception;
-    void increaseQty(Long userId, Long prodId) throws Exception;
-    void decreaseQty(Long userId, Long prodId) throws Exception;
+    void increaseQty(Long userId, Long prodId, Double discountedPrice) throws Exception;
+    void decreaseQty(Long userId, Long prodId, Double discountedPrice) throws Exception;
     void updateAmount(Long userId, Long prodId, Double amount) throws Exception;
     List<CartItem> getCartItemsByUserId(Long userId) throws Exception;
     List<CartItem> getAllCartItems() throws Exception;
@@ -144,7 +144,7 @@ public interface CartItemDAO {
     CartItem getCartItem(Long userId, Long prodId) throws Exception;
 }
 
-// CartItem DAO Implementation - Only handles CartItem table operations
+// CartItem DAO Implementation
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -179,12 +179,13 @@ public class CartItemDAOImpl implements CartItemDAO {
     }
     
     @Override
-    public void increaseQty(Long userId, Long prodId) throws Exception {
-        String sql = "UPDATE CartItem SET qty = qty + 1 WHERE user_id = ? AND prod_id = ?";
+    public void increaseQty(Long userId, Long prodId, Double discountedPrice) throws Exception {
+        String sql = "UPDATE CartItem SET qty = qty + 1, amount = (qty + 1) * ? WHERE user_id = ? AND prod_id = ?";
         
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setLong(1, userId);
-            pstmt.setLong(2, prodId);
+            pstmt.setDouble(1, discountedPrice);
+            pstmt.setLong(2, userId);
+            pstmt.setLong(3, prodId);
             int rowsUpdated = pstmt.executeUpdate();
             
             if (rowsUpdated == 0) {
@@ -194,7 +195,7 @@ public class CartItemDAOImpl implements CartItemDAO {
     }
     
     @Override
-    public void decreaseQty(Long userId, Long prodId) throws Exception {
+    public void decreaseQty(Long userId, Long prodId, Double discountedPrice) throws Exception {
         // First check current quantity
         CartItem item = getCartItem(userId, prodId);
         if (item == null) {
@@ -205,11 +206,12 @@ public class CartItemDAOImpl implements CartItemDAO {
             // Delete item if quantity would become 0
             deleteCartItem(userId, prodId);
         } else {
-            // Decrease quantity
-            String sql = "UPDATE CartItem SET qty = qty - 1 WHERE user_id = ? AND prod_id = ?";
+            // Decrease quantity and update amount in single query
+            String sql = "UPDATE CartItem SET qty = qty - 1, amount = (qty - 1) * ? WHERE user_id = ? AND prod_id = ?";
             try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-                pstmt.setLong(1, userId);
-                pstmt.setLong(2, prodId);
+                pstmt.setDouble(1, discountedPrice);
+                pstmt.setLong(2, userId);
+                pstmt.setLong(3, prodId);
                 pstmt.executeUpdate();
             }
         }
@@ -479,7 +481,7 @@ public class ProductDAOImpl implements ProductDAO {
     }
 }
 
-// CartItem Service - Handles business logic and coordinates DAOs
+// CartItem Service - Business Logic Layer
 import java.util.List;
 
 public class CartItemService {
@@ -514,28 +516,29 @@ public class CartItemService {
     }
     
     public void increaseCartItemQty(Long userId, Long prodId) throws Exception {
-        // Validate product exists
-        if (!productDAO.productExists(prodId)) {
+        // Get product for price calculation
+        Product product = productDAO.getProductById(prodId);
+        if (product == null) {
             throw new Exception("Product not found: " + prodId);
         }
         
-        cartItemDAO.increaseQty(userId, prodId);
-        recalculateAndUpdateAmount(userId, prodId);
+        Double discountedPrice = calculateDiscountedPrice(product);
+        
+        // Single atomic operation - updates qty and amount together
+        cartItemDAO.increaseQty(userId, prodId, discountedPrice);
     }
     
     public void decreaseCartItemQty(Long userId, Long prodId) throws Exception {
-        // Validate product exists
-        if (!productDAO.productExists(prodId)) {
+        // Get product for price calculation
+        Product product = productDAO.getProductById(prodId);
+        if (product == null) {
             throw new Exception("Product not found: " + prodId);
         }
         
-        cartItemDAO.decreaseQty(userId, prodId);
+        Double discountedPrice = calculateDiscountedPrice(product);
         
-        // Recalculate amount if item still exists (wasn't deleted)
-        CartItem item = cartItemDAO.getCartItem(userId, prodId);
-        if (item != null) {
-            recalculateAndUpdateAmount(userId, prodId);
-        }
+        // Single atomic operation - updates qty and amount together
+        cartItemDAO.decreaseQty(userId, prodId, discountedPrice);
     }
     
     public List<CartItem> getUserCart(Long userId) throws Exception {
@@ -592,24 +595,16 @@ public class CartItemService {
         }
     }
     
+    public CartItem getCartItem(Long userId, Long prodId) throws Exception {
+        return cartItemDAO.getCartItem(userId, prodId);
+    }
+    
     // Admin functionality
     public List<CartItem> getAllCartItems() throws Exception {
         return cartItemDAO.getAllCartItems();
     }
     
-    // Private helper methods
-    private void recalculateAndUpdateAmount(Long userId, Long prodId) throws Exception {
-        CartItem currentItem = cartItemDAO.getCartItem(userId, prodId);
-        if (currentItem != null) {
-            Product product = productDAO.getProductById(prodId);
-            if (product != null) {
-                Double discountedPrice = calculateDiscountedPrice(product);
-                Double newAmount = discountedPrice * currentItem.getQty();
-                cartItemDAO.updateAmount(userId, prodId, newAmount);
-            }
-        }
-    }
-    
+    // Private helper method
     private Double calculateDiscountedPrice(Product product) {
         Double discount = product.getDiscount() != null ? product.getDiscount() : 0.0;
         return product.getPrice() - discount;
