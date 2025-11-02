@@ -3,6 +3,7 @@ https://fra.cloud.appwrite.io/v1
 69068f6200047f243ccf
 articles
 69069119001b6f871014
+ws9u7u2gx4ii0c99sbcu1rvug936nrsvvojgcx1me75b0gge
         
         return cartItems;
     }
