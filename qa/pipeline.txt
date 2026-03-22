@@ -1,2 +1,18 @@
-initial
-qachange
+function getTop3(objects) {
+  const mandatory = objects.filter(obj => obj.type === 'mandatory');
+  const nonMandatory = objects.filter(obj => obj.type !== 'mandatory');
+
+  if (mandatory.length >= 3) {
+    return mandatory; // return all mandatory (as per your rule)
+  }
+
+  const result = [...mandatory];
+
+  const remainingSlots = 3 - result.length;
+
+  if (remainingSlots > 0) {
+    result.push(...nonMandatory.slice(0, remainingSlots));
+  }
+
+  return result;
+}
